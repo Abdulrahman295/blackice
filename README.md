@@ -142,6 +142,27 @@ Environment config files:
 Config precedence:
 - `BLACKICE_CONFIG_FILE` selects which YAML file is loaded.
 
+## Testing
+Run the full test suite:
+```bash
+npm test
+```
+
+Run only unit tests:
+```bash
+npm run test:unit
+```
+
+Run only integration tests:
+```bash
+npm run test:integration
+```
+
+Watch mode:
+```bash
+npm run test:watch
+```
+
 ## Quick Tests
 Streaming CHAT:
 ```bash
