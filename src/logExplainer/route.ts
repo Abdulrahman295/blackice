@@ -95,16 +95,28 @@ function buildEvidence(rawLogs: string, requestedLines: number | undefined): Evi
   return sampled.map((line) => parseEvidenceLine(line));
 }
 
-function resolveBatchMode(input: { mode?: BatchMode; analyze?: boolean; collectOnly?: boolean }): BatchMode {
+function resolveBatchMode(input: { mode?: BatchMode; analyze?: boolean; collectOnly?: boolean }): {
+  mode: BatchMode;
+  legacyCollectOnly: boolean;
+} {
   if (input.mode) {
-    return input.mode;
+    return {
+      mode: input.mode,
+      legacyCollectOnly: false
+    };
   }
 
   if (input.collectOnly === true || input.analyze === false) {
-    return 'raw';
+    return {
+      mode: 'raw',
+      legacyCollectOnly: true
+    };
   }
 
-  return 'analyze';
+  return {
+    mode: 'analyze',
+    legacyCollectOnly: false
+  };
 }
 
 function resolveEvidenceLinesForMode(mode: BatchMode, requested: number | undefined): number | undefined {
@@ -272,11 +284,12 @@ export function registerLogExplainerRoutes(app: Express): void {
       }
 
       const source = body.source;
-      const mode = resolveBatchMode({
+      const modeInfo = resolveBatchMode({
         mode: body.mode,
         analyze: body.analyze,
         collectOnly: body.collectOnly
       });
+      const mode = modeInfo.mode;
 
       if (source === 'loki') {
         if (typeof body.query === 'string' && body.query.trim().length > 0) {
@@ -325,6 +338,7 @@ export function registerLogExplainerRoutes(app: Express): void {
             result = {
               target: collected.query,
               ok: true,
+              ...(modeInfo.legacyCollectOnly ? { logs: collected.logs } : {}),
               evidence,
               message: collected.logs.trim() ? 'Logs collected (raw mode)' : 'No logs collected (raw mode)'
             };
@@ -418,6 +432,7 @@ export function registerLogExplainerRoutes(app: Express): void {
             return {
               target,
               ok: true,
+              ...(modeInfo.legacyCollectOnly ? { logs: rawLogs } : {}),
               evidence,
               message: rawLogs.trim() ? 'Logs collected (raw mode)' : 'No logs collected (raw mode)'
             };
