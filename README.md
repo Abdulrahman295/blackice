@@ -29,8 +29,8 @@ flowchart LR
 
 ## Install
 ```bash
-npm install
-npm run build
+pnpm install
+pnpm run build
 ```
 
 ## Run
@@ -39,12 +39,12 @@ PORT=3000 \
 BLACKICE_CONFIG_FILE=./config/blackice.local.yaml \
 ACTIONS_ENABLED=true \
 LOG_LEVEL=info \
-npm start
+pnpm start
 ```
 
 Dev mode:
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 ## Source Layout
@@ -145,22 +145,22 @@ Config precedence:
 ## Testing
 Run the full test suite:
 ```bash
-npm test
+pnpm test
 ```
 
 Run only unit tests:
 ```bash
-npm run test:unit
+pnpm run test:unit
 ```
 
 Run only integration tests:
 ```bash
-npm run test:integration
+pnpm run test:integration
 ```
 
 Watch mode:
 ```bash
-npm run test:watch
+pnpm run test:watch
 ```
 
 ## Quick Tests
@@ -321,8 +321,8 @@ curl -sS "http://127.0.0.1:3000/version"
 ```
 - Semver release tags (creates commit + tag):
 ```bash
-npm run version:patch
-# or: npm run version:minor
+pnpm run version:patch
+# or: pnpm run version:minor
 # or: npm run version:major
 git push origin main --follow-tags
 ```

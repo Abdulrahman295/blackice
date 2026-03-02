@@ -7,7 +7,7 @@
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "prestart": "npm run build",
+    "prestart": "pnpm run build",
     "start": "node dist/server.js",
     "dev": "tsx src/server.ts",
     "test": "vitest run",
