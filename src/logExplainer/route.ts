@@ -44,6 +44,14 @@ type EvidenceLine = {
 
 const ISO_OR_SHORT_TS_PREFIX = /^(\d{4}-\d{2}-\d{2}[ T][^\s]+)\s+(.*)$/;
 const LOKI_NS_TS_PREFIX = /^(\d{16,20})\s+(.*)$/;
+const MAX_EVIDENCE_LINE_CHARS = 2_000;
+
+function clampEvidenceLine(line: string): string {
+  if (line.length <= MAX_EVIDENCE_LINE_CHARS) {
+    return line;
+  }
+  return `${line.slice(0, MAX_EVIDENCE_LINE_CHARS)} [truncated]`;
+}
 
 function parseEvidenceLine(rawLine: string): EvidenceLine {
   const trimmed = rawLine.trim();
@@ -52,7 +60,7 @@ function parseEvidenceLine(rawLine: string): EvidenceLine {
   if (isoMatch) {
     return {
       ts: isoMatch[1],
-      line: sanitizeReadOnlyEvidenceLine(isoMatch[2])
+      line: clampEvidenceLine(sanitizeReadOnlyEvidenceLine(isoMatch[2]))
     };
   }
 
@@ -60,13 +68,13 @@ function parseEvidenceLine(rawLine: string): EvidenceLine {
   if (lokiMatch) {
     return {
       ts: lokiMatch[1],
-      line: sanitizeReadOnlyEvidenceLine(lokiMatch[2])
+      line: clampEvidenceLine(sanitizeReadOnlyEvidenceLine(lokiMatch[2]))
     };
   }
 
   return {
     ts: '',
-    line: sanitizeReadOnlyEvidenceLine(trimmed)
+    line: clampEvidenceLine(sanitizeReadOnlyEvidenceLine(trimmed))
   };
 }
 

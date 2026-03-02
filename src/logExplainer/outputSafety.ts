@@ -24,8 +24,9 @@ const FORBIDDEN_PATTERNS: RegExp[] = [
 
 const EVIDENCE_REDACTION_RULES: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /\b(Bearer)\s+[A-Za-z0-9._~+/=-]+/gi, replacement: '$1 [REDACTED]' },
+  { pattern: /(\bauthorization\b\s*[=:]\s*Bearer\s+)(\S+)/gi, replacement: '$1[REDACTED]' },
   { pattern: /(\b(?:authorization|x-api-key)\b\s*:\s*)(\S+)/gi, replacement: '$1[REDACTED]' },
-  { pattern: /(\b(?:api[_-]?key|token|password|passwd|secret)\b\s*[=:]\s*)(\S+)/gi, replacement: '$1[REDACTED]' }
+  { pattern: /(\b(?:api[_-]?key|token|access[_-]?token|password|passwd|secret)\b\s*[=:]\s*)(\S+)/gi, replacement: '$1[REDACTED]' }
 ];
 
 export function ensureReadOnlyAnalysisOutput(analysis: string): { safe: true } | { safe: false; reason: string } {
