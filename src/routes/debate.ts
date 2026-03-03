@@ -1,24 +1,24 @@
-import type { Express, Request, Response } from 'express';
-import { DebateInputError, runDebate } from '../debate.js';
-import { log } from '../log.js';
-import { DebateRequestSchema } from '../schema.js';
-import { sendOpenAIError } from '../http/errors.js';
-import { getRequestId } from '../http/requestLogging.js';
-import { resolveSafetyIdentifier } from '../ai/safetyIdentifier.js';
+import type { Express, Request, Response } from 'express'
+import { DebateInputError, runDebate } from '../debate.js'
+import { log } from '../log.js'
+import { DebateRequestSchema } from '../schema.js'
+import { sendOpenAIError } from '../http/errors.js'
+import { getRequestId } from '../http/requestLogging.js'
+import { resolveSafetyIdentifier } from '../ai/safetyIdentifier.js'
 
 export function registerDebateRoutes(app: Express, maxActiveDebates: number): void {
-  let activeDebates = 0;
+  let activeDebates = 0
 
   app.post('/v1/debate', async (req: Request, res: Response) => {
-    const started = Date.now();
-    const requestId = getRequestId(res);
-    let acquiredDebateSlot = false;
+    const started = Date.now()
+    const requestId = getRequestId(res)
+    let acquiredDebateSlot = false
 
     try {
-      const parsed = DebateRequestSchema.safeParse(req.body);
+      const parsed = DebateRequestSchema.safeParse(req.body)
       if (!parsed.success) {
-        sendOpenAIError(res, 400, parsed.error.message);
-        return;
+        sendOpenAIError(res, 400, parsed.error.message)
+        return
       }
 
       if (activeDebates >= maxActiveDebates) {
@@ -27,22 +27,22 @@ export function registerDebateRoutes(app: Express, maxActiveDebates: number): vo
           429,
           `Debate capacity reached (${maxActiveDebates} active). Try again shortly.`,
           'rate_limit_error'
-        );
-        return;
+        )
+        return
       }
 
-      activeDebates += 1;
-      acquiredDebateSlot = true;
+      activeDebates += 1
+      acquiredDebateSlot = true
       const safetyIdentifier = resolveSafetyIdentifier({
         request: req,
         explicitUser: parsed.data.user,
-        requestId
-      });
+        requestId,
+      })
 
       const result = await runDebate(parsed.data, {
         requestId,
-        safetyIdentifier
-      });
+        safetyIdentifier,
+      })
 
       log.info('debate_complete', {
         request_id: requestId,
@@ -53,37 +53,37 @@ export function registerDebateRoutes(app: Express, maxActiveDebates: number): vo
         turns_per_round: parsed.data.turnsPerRound,
         total_turns: result.transcript.length,
         active_debates: activeDebates,
-        latency_ms: Date.now() - started
-      });
+        latency_ms: Date.now() - started,
+      })
 
       res.status(200).json({
         request_id: requestId,
-        ...result
-      });
+        ...result,
+      })
     } catch (error) {
       if (error instanceof DebateInputError) {
-        sendOpenAIError(res, 400, error.message);
-        return;
+        sendOpenAIError(res, 400, error.message)
+        return
       }
 
       log.error('debate_failed', {
         request_id: requestId,
         latency_ms: Date.now() - started,
-        error: error instanceof Error ? error.message : String(error)
-      });
+        error: error instanceof Error ? error.message : String(error),
+      })
 
       sendOpenAIError(
         res,
         500,
         error instanceof Error ? error.message : 'Internal server error',
         'server_error'
-      );
+      )
     } finally {
       if (acquiredDebateSlot && activeDebates > 0) {
-        activeDebates -= 1;
+        activeDebates -= 1
       }
     }
-  });
+  })
 
   app.get('/v1/debate/schema', (_req: Request, res: Response) => {
     res.status(200).json({
@@ -97,7 +97,7 @@ export function registerDebateRoutes(app: Express, maxActiveDebates: number): vo
         moderator_decision_mode: {
           type: 'string',
           enum: ['openclaw_decides'],
-          default: 'openclaw_decides'
+          default: 'openclaw_decides',
         },
         modelA: { type: 'string', minLength: 1, maxLength: 120 },
         modelB: { type: 'string', minLength: 1, maxLength: 120 },
@@ -106,13 +106,13 @@ export function registerDebateRoutes(app: Express, maxActiveDebates: number): vo
         maxTurnChars: { type: 'integer', minimum: 200, maximum: 2000, default: 1200 },
         includeModeratorSummary: { type: 'boolean', default: false },
         temperatureA: { type: 'number', minimum: 0, maximum: 2 },
-        temperatureB: { type: 'number', minimum: 0, maximum: 2 }
+        temperatureB: { type: 'number', minimum: 0, maximum: 2 },
       },
       notes: [
         'Winner is always decided by OpenClaw policy.',
         'Models must be present in DEBATE_MODEL_ALLOWLIST.',
-        'Total turns = rounds * turnsPerRound.'
-      ]
-    });
-  });
+        'Total turns = rounds * turnsPerRound.',
+      ],
+    })
+  })
 }

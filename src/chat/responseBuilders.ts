@@ -1,11 +1,11 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto'
 
 export function nowSeconds(): number {
-  return Math.floor(Date.now() / 1000);
+  return Math.floor(Date.now() / 1000)
 }
 
 export function openAICompletionId(): string {
-  return `chatcmpl-${randomUUID()}`;
+  return `chatcmpl-${randomUUID()}`
 }
 
 export function buildMessageResponse(model: string, text: string) {
@@ -19,10 +19,10 @@ export function buildMessageResponse(model: string, text: string) {
         index: 0,
         message: {
           role: 'assistant',
-          content: text
+          content: text,
         },
-        finish_reason: 'stop'
-      }
-    ]
-  };
+        finish_reason: 'stop',
+      },
+    ],
+  }
 }

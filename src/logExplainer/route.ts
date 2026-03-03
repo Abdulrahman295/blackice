@@ -1,5 +1,5 @@
-import { type Request, type Response, type Express } from 'express';
-import { log } from '../log.js';
+import { type Request, type Response, type Express } from 'express'
+import { log } from '../log.js'
 import {
   BATCH_EVIDENCE_LINES_DEFAULT,
   BATCH_EVIDENCE_LINES_MAX,
@@ -11,137 +11,155 @@ import {
   LogExplainerJsonSchemas,
   type AnalyzeLogsBatchResultError,
   type AnalyzeLogsBatchResultOk,
-  type AnalyzeLogsRequest
-} from './schema.js';
+  type AnalyzeLogsRequest,
+} from './schema.js'
 import {
   checkLokiHealth,
   collectLogs,
   collectLokiBatchLogs,
   ensureLokiRulesConfigured,
-  getLokiSyntheticTargets
-} from './logCollector.js';
-import { analyzeLogsWithOllama } from './ollamaClient.js';
-import { SYSTEM_PROMPT, buildUserPrompt, truncateLogs, type AnalyzePromptRequest } from './promptTemplates.js';
-import { ensureReadOnlyAnalysisOutput, sanitizeReadOnlyAnalysisOutput, sanitizeReadOnlyEvidenceLine } from './outputSafety.js';
-import { errMessage, toHttpError } from '../http/errors.js';
-import { getRequestId } from '../http/requestLogging.js';
-import { parseBodyOrRespond } from '../http/validation.js';
-import { buildLogExplainerStatus } from './status.js';
-import { resolveSafetyIdentifier } from '../ai/safetyIdentifier.js';
+  getLokiSyntheticTargets,
+} from './logCollector.js'
+import { analyzeLogsWithOllama } from './ollamaClient.js'
+import {
+  SYSTEM_PROMPT,
+  buildUserPrompt,
+  truncateLogs,
+  type AnalyzePromptRequest,
+} from './promptTemplates.js'
+import {
+  ensureReadOnlyAnalysisOutput,
+  sanitizeReadOnlyAnalysisOutput,
+  sanitizeReadOnlyEvidenceLine,
+} from './outputSafety.js'
+import { errMessage, toHttpError } from '../http/errors.js'
+import { getRequestId } from '../http/requestLogging.js'
+import { parseBodyOrRespond } from '../http/validation.js'
+import { buildLogExplainerStatus } from './status.js'
+import { resolveSafetyIdentifier } from '../ai/safetyIdentifier.js'
 
 type AnalysisResult = {
-  analysis: string;
-  no_logs?: boolean;
-  message?: string;
+  analysis: string
+  no_logs?: boolean
+  message?: string
   safety?: {
-    redacted: boolean;
-    reasons: string[];
-  };
-};
+    redacted: boolean
+    reasons: string[]
+  }
+}
 
-type BatchMode = 'analyze' | 'raw' | 'both';
+type BatchMode = 'analyze' | 'raw' | 'both'
 type EvidenceLine = {
-  ts: string;
-  line: string;
-};
+  ts: string
+  line: string
+}
 
-const ISO_OR_SHORT_TS_PREFIX = /^(\d{4}-\d{2}-\d{2}[ T][^\s]+)\s+(.*)$/;
-const LOKI_NS_TS_PREFIX = /^(\d{16,20})\s+(.*)$/;
-const MAX_EVIDENCE_LINE_CHARS = 2_000;
+const ISO_OR_SHORT_TS_PREFIX = /^(\d{4}-\d{2}-\d{2}[ T][^\s]+)\s+(.*)$/
+const LOKI_NS_TS_PREFIX = /^(\d{16,20})\s+(.*)$/
+const MAX_EVIDENCE_LINE_CHARS = 2_000
 
 function clampEvidenceLine(line: string): string {
   if (line.length <= MAX_EVIDENCE_LINE_CHARS) {
-    return line;
+    return line
   }
-  return `${line.slice(0, MAX_EVIDENCE_LINE_CHARS)} [truncated]`;
+  return `${line.slice(0, MAX_EVIDENCE_LINE_CHARS)} [truncated]`
 }
 
 function parseEvidenceLine(rawLine: string): EvidenceLine {
-  const trimmed = rawLine.trim();
+  const trimmed = rawLine.trim()
 
-  const isoMatch = trimmed.match(ISO_OR_SHORT_TS_PREFIX);
+  const isoMatch = trimmed.match(ISO_OR_SHORT_TS_PREFIX)
   if (isoMatch) {
     return {
       ts: isoMatch[1],
-      line: clampEvidenceLine(sanitizeReadOnlyEvidenceLine(isoMatch[2]))
-    };
+      line: clampEvidenceLine(sanitizeReadOnlyEvidenceLine(isoMatch[2])),
+    }
   }
 
-  const lokiMatch = trimmed.match(LOKI_NS_TS_PREFIX);
+  const lokiMatch = trimmed.match(LOKI_NS_TS_PREFIX)
   if (lokiMatch) {
     return {
       ts: lokiMatch[1],
-      line: clampEvidenceLine(sanitizeReadOnlyEvidenceLine(lokiMatch[2]))
-    };
+      line: clampEvidenceLine(sanitizeReadOnlyEvidenceLine(lokiMatch[2])),
+    }
   }
 
   return {
     ts: '',
-    line: clampEvidenceLine(sanitizeReadOnlyEvidenceLine(trimmed))
-  };
+    line: clampEvidenceLine(sanitizeReadOnlyEvidenceLine(trimmed)),
+  }
 }
 
-function buildEvidence(rawLogs: string, requestedLines: number | undefined): EvidenceLine[] | undefined {
+function buildEvidence(
+  rawLogs: string,
+  requestedLines: number | undefined
+): EvidenceLine[] | undefined {
   if (requestedLines === undefined) {
-    return undefined;
+    return undefined
   }
 
-  const boundedCount = Math.max(1, Math.min(requestedLines, BATCH_EVIDENCE_LINES_MAX));
+  const boundedCount = Math.max(1, Math.min(requestedLines, BATCH_EVIDENCE_LINES_MAX))
   const lines = rawLogs
     .split('\n')
     .map((line) => line.trimEnd())
-    .filter((line) => line.trim().length > 0);
+    .filter((line) => line.trim().length > 0)
 
-  const sampled = lines.slice(-boundedCount);
-  return sampled.map((line) => parseEvidenceLine(line));
+  const sampled = lines.slice(-boundedCount)
+  return sampled.map((line) => parseEvidenceLine(line))
 }
 
 function resolveBatchMode(input: { mode?: BatchMode; analyze?: boolean; collectOnly?: boolean }): {
-  mode: BatchMode;
-  legacyCollectOnly: boolean;
+  mode: BatchMode
+  legacyCollectOnly: boolean
 } {
   if (input.mode) {
     return {
       mode: input.mode,
-      legacyCollectOnly: false
-    };
+      legacyCollectOnly: false,
+    }
   }
 
   if (input.collectOnly === true || input.analyze === false) {
     return {
       mode: 'raw',
-      legacyCollectOnly: true
-    };
+      legacyCollectOnly: true,
+    }
   }
 
   return {
     mode: 'analyze',
-    legacyCollectOnly: false
-  };
+    legacyCollectOnly: false,
+  }
 }
 
-function resolveEvidenceLinesForMode(mode: BatchMode, requested: number | undefined): number | undefined {
+function resolveEvidenceLinesForMode(
+  mode: BatchMode,
+  requested: number | undefined
+): number | undefined {
   if (mode === 'analyze') {
-    return undefined;
+    return undefined
   }
-  return requested ?? BATCH_EVIDENCE_LINES_DEFAULT;
+  return requested ?? BATCH_EVIDENCE_LINES_DEFAULT
 }
 
 type AnalysisContext = {
-  requestId?: string;
-  safetyIdentifier?: string;
-};
+  requestId?: string
+  safetyIdentifier?: string
+}
 
-async function analyzeOneRequest(request: AnalyzeLogsRequest, ctx: AnalysisContext): Promise<AnalysisResult> {
-  const rawLogs = await collectLogs(request);
+async function analyzeOneRequest(
+  request: AnalyzeLogsRequest,
+  ctx: AnalysisContext
+): Promise<AnalysisResult> {
+  const rawLogs = await collectLogs(request)
 
-  const shouldAnalyze = request.analyze !== false && request.collectOnly !== true;
+  const shouldAnalyze = request.analyze !== false && request.collectOnly !== true
 
   if (!shouldAnalyze) {
-    return { analysis: rawLogs };
+    return { analysis: rawLogs }
   }
 
-  return analyzeFromRawLogs(request, rawLogs, ctx);
+  return analyzeFromRawLogs(request, rawLogs, ctx)
 }
 
 async function analyzeFromRawLogs(
@@ -153,86 +171,90 @@ async function analyzeFromRawLogs(
     return {
       analysis: '',
       no_logs: true,
-      message: 'No logs were collected for the given query'
-    };
+      message: 'No logs were collected for the given query',
+    }
   }
 
-  const { text: logs, truncated } = truncateLogs(rawLogs);
-  const userPrompt = buildUserPrompt({ ...request, logs, truncated });
+  const { text: logs, truncated } = truncateLogs(rawLogs)
+  const userPrompt = buildUserPrompt({ ...request, logs, truncated })
   const analysis = await analyzeLogsWithOllama({
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     requestId: ctx.requestId,
-    safetyIdentifier: ctx.safetyIdentifier
-  });
+    safetyIdentifier: ctx.safetyIdentifier,
+  })
 
-  const safety = ensureReadOnlyAnalysisOutput(analysis);
+  const safety = ensureReadOnlyAnalysisOutput(analysis)
   if (!safety.safe) {
-    const sanitized = sanitizeReadOnlyAnalysisOutput(analysis);
+    const sanitized = sanitizeReadOnlyAnalysisOutput(analysis)
 
     log.info('log_explainer_output_redacted', {
       reason: safety.reason,
       redacted: sanitized.redacted,
-      reasons: sanitized.reasons
-    });
+      reasons: sanitized.reasons,
+    })
 
     return {
       analysis: sanitized.analysis,
       safety: {
         redacted: sanitized.redacted,
-        reasons: sanitized.reasons
-      }
-    };
+        reasons: sanitized.reasons,
+      },
+    }
   }
 
-  return { analysis };
+  return { analysis }
 }
 
-async function runConcurrent<T, R>(items: T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let index = 0;
+async function runConcurrent<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let index = 0
 
   const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
     while (true) {
-      const current = index;
-      index += 1;
+      const current = index
+      index += 1
 
       if (current >= items.length) {
-        break;
+        break
       }
 
-      results[current] = await worker(items[current]);
+      results[current] = await worker(items[current])
     }
-  });
+  })
 
-  await Promise.all(runners);
-  return results;
+  await Promise.all(runners)
+  return results
 }
 
 export function registerLogExplainerRoutes(app: Express): void {
   app.get('/analyze/logs/targets', (_req: Request, res: Response) => {
     try {
-      ensureLokiRulesConfigured();
-      const targets = [...getLokiSyntheticTargets()];
-      const body = AnalyzeLogsTargetsResponseSchema.parse({ targets });
-      res.status(200).json(body);
+      ensureLokiRulesConfigured()
+      const targets = [...getLokiSyntheticTargets()]
+      const body = AnalyzeLogsTargetsResponseSchema.parse({ targets })
+      res.status(200).json(body)
     } catch (error: unknown) {
-      const httpError = toHttpError(error);
-      res.status(httpError.status).json({ error: httpError.message });
+      const httpError = toHttpError(error)
+      res.status(httpError.status).json({ error: httpError.message })
     }
-  });
+  })
 
   app.get('/health/loki', async (_req: Request, res: Response) => {
-    const health = await checkLokiHealth();
-    res.status(health.ok ? 200 : health.status).json(health);
-  });
+    const health = await checkLokiHealth()
+    res.status(health.ok ? 200 : health.status).json(health)
+  })
 
   app.get('/analyze/logs/status', (_req: Request, res: Response) => {
-    res.status(200).json(buildLogExplainerStatus());
-  });
+    res.status(200).json(buildLogExplainerStatus())
+  })
 
   app.get('/analyze/logs/metadata', (_req: Request, res: Response) => {
-    const status = buildLogExplainerStatus();
+    const status = buildLogExplainerStatus()
 
     res.status(200).json({
       name: 'blackice-log-explainer',
@@ -242,7 +264,7 @@ export function registerLogExplainerRoutes(app: Express): void {
         targets: {
           method: 'GET',
           path: '/analyze/logs/targets',
-          responseSchema: LogExplainerJsonSchemas.analyzeLogsTargetsResponse
+          responseSchema: LogExplainerJsonSchemas.analyzeLogsTargetsResponse,
         },
         analyze: {
           method: 'POST',
@@ -251,9 +273,9 @@ export function registerLogExplainerRoutes(app: Express): void {
             source: 'journalctl | journald | docker',
             target: 'string',
             hours: 'number',
-            maxLines: 'number'
+            maxLines: 'number',
           },
-          responseSchema: LogExplainerJsonSchemas.analyzeLogsResponse
+          responseSchema: LogExplainerJsonSchemas.analyzeLogsResponse,
         },
         batch: {
           method: 'POST',
@@ -273,65 +295,69 @@ export function registerLogExplainerRoutes(app: Express): void {
             sinceMinutes: 'number (optional; overrides hours for source=loki)',
             maxLines: 'number (optional)',
             mode: 'analyze | raw | both (optional; default analyze)',
-            evidenceLines: 'number (optional; max 50; includes evidence excerpts per success result)',
-            concurrency: 'number (optional)'
+            evidenceLines:
+              'number (optional; max 50; includes evidence excerpts per success result)',
+            concurrency: 'number (optional)',
           },
-          responseSchema: LogExplainerJsonSchemas.analyzeLogsBatchResponse
+          responseSchema: LogExplainerJsonSchemas.analyzeLogsBatchResponse,
         },
         status: {
           method: 'GET',
-          path: '/analyze/logs/status'
-        }
+          path: '/analyze/logs/status',
+        },
       },
       status,
-      schemas: LogExplainerJsonSchemas
-    });
-  });
+      schemas: LogExplainerJsonSchemas,
+    })
+  })
 
   app.post('/analyze/logs/batch', async (req: Request, res: Response) => {
     try {
-      const requestId = getRequestId(res);
+      const requestId = getRequestId(res)
       const safetyIdentifier = resolveSafetyIdentifier({
         request: req,
         explicitUser: undefined,
-        requestId
-      });
-      const body = parseBodyOrRespond(AnalyzeLogsBatchRequestSchema, req.body, res);
+        requestId,
+      })
+      const body = parseBodyOrRespond(AnalyzeLogsBatchRequestSchema, req.body, res)
       if (!body) {
-        return;
+        return
       }
 
-      const source = body.source;
+      const source = body.source
       const modeInfo = resolveBatchMode({
         mode: body.mode,
         analyze: body.analyze,
-        collectOnly: body.collectOnly
-      });
-      const mode = modeInfo.mode;
+        collectOnly: body.collectOnly,
+      })
+      const mode = modeInfo.mode
 
       if (source === 'loki') {
         if (typeof body.query === 'string' && body.query.trim().length > 0) {
           res.status(403).json({
             error: 'Raw Loki query is not allowed',
-            details: 'Use filters so BlackIce can construct a validated selector internally'
-          });
-          return;
+            details: 'Use filters so BlackIce can construct a validated selector internally',
+          })
+          return
         }
 
-        if ((body.selectors && body.selectors.length > 0) || (body.targets && body.targets.length > 0)) {
+        if (
+          (body.selectors && body.selectors.length > 0) ||
+          (body.targets && body.targets.length > 0)
+        ) {
           res.status(403).json({
             error: 'Direct Loki selectors are not allowed',
-            details: 'Use source=loki with filters instead of selectors[] or loki:{...} targets'
-          });
-          return;
+            details: 'Use source=loki with filters instead of selectors[] or loki:{...} targets',
+          })
+          return
         }
 
         if (!body.filters) {
           res.status(400).json({
             error: 'Missing Loki filters',
-            details: 'Provide filters for source=loki'
-          });
-          return;
+            details: 'Provide filters for source=loki',
+          })
+          return
         }
 
         const lokiRequest = {
@@ -343,14 +369,17 @@ export function registerLogExplainerRoutes(app: Express): void {
           end: body.end,
           sinceSeconds: body.sinceSeconds,
           limit: body.limit,
-          allowUnscoped: body.allowUnscoped
-        };
-        let fallbackTarget = 'loki';
-        let result: AnalyzeLogsBatchResultOk | AnalyzeLogsBatchResultError;
+          allowUnscoped: body.allowUnscoped,
+        }
+        let fallbackTarget = 'loki'
+        let result: AnalyzeLogsBatchResultOk | AnalyzeLogsBatchResultError
         try {
-          const collected = await collectLokiBatchLogs(lokiRequest);
-          fallbackTarget = collected.query;
-          const evidence = buildEvidence(collected.logs, resolveEvidenceLinesForMode(mode, body.evidenceLines));
+          const collected = await collectLokiBatchLogs(lokiRequest)
+          fallbackTarget = collected.query
+          const evidence = buildEvidence(
+            collected.logs,
+            resolveEvidenceLinesForMode(mode, body.evidenceLines)
+          )
 
           if (mode === 'raw') {
             result = {
@@ -358,8 +387,10 @@ export function registerLogExplainerRoutes(app: Express): void {
               ok: true,
               ...(modeInfo.legacyCollectOnly ? { logs: collected.logs } : {}),
               evidence,
-              message: collected.logs.trim() ? 'Logs collected (raw mode)' : 'No logs collected (raw mode)'
-            };
+              message: collected.logs.trim()
+                ? 'Logs collected (raw mode)'
+                : 'No logs collected (raw mode)',
+            }
           } else if (mode === 'both') {
             const analysisRequest: AnalyzePromptRequest = {
               source: 'loki',
@@ -367,18 +398,18 @@ export function registerLogExplainerRoutes(app: Express): void {
               hours: collected.hours,
               maxLines: collected.limit,
               analyze: body.analyze,
-              collectOnly: body.collectOnly
-            };
+              collectOnly: body.collectOnly,
+            }
             const analysisResult = await analyzeFromRawLogs(analysisRequest, collected.logs, {
               requestId,
-              safetyIdentifier
-            });
+              safetyIdentifier,
+            })
             result = {
               target: collected.query,
               ok: true,
               evidence,
-              ...analysisResult
-            };
+              ...analysisResult,
+            }
           } else {
             const analysisRequest: AnalyzePromptRequest = {
               source: 'loki',
@@ -386,26 +417,26 @@ export function registerLogExplainerRoutes(app: Express): void {
               hours: collected.hours,
               maxLines: collected.limit,
               analyze: body.analyze,
-              collectOnly: body.collectOnly
-            };
+              collectOnly: body.collectOnly,
+            }
             const analysisResult = await analyzeFromRawLogs(analysisRequest, collected.logs, {
               requestId,
-              safetyIdentifier
-            });
+              safetyIdentifier,
+            })
             result = {
               target: collected.query,
               ok: true,
-              ...analysisResult
-            };
+              ...analysisResult,
+            }
           }
         } catch (error: unknown) {
-          const httpError = toHttpError(error);
+          const httpError = toHttpError(error)
           result = {
             target: fallbackTarget,
             ok: false,
             error: httpError.message,
-            status: httpError.status
-          };
+            status: httpError.status,
+          }
         }
 
         const bodyOut = AnalyzeLogsBatchResponseSchema.parse({
@@ -414,23 +445,23 @@ export function registerLogExplainerRoutes(app: Express): void {
           analyzedTargets: 1,
           ok: result.ok ? 1 : 0,
           failed: result.ok ? 0 : 1,
-          results: [result]
-        });
-        res.status(200).json(bodyOut);
-        return;
+          results: [result],
+        })
+        res.status(200).json(bodyOut)
+        return
       }
 
-      let candidateTargets: string[];
-      let targets: string[];
+      let candidateTargets: string[]
+      let targets: string[]
 
       if (source === 'journald') {
-        candidateTargets = body.targets && body.targets.length > 0 ? body.targets : ['all'];
-        targets = candidateTargets;
+        candidateTargets = body.targets && body.targets.length > 0 ? body.targets : ['all']
+        targets = candidateTargets
       } else {
         res.status(400).json({
-          error: `Unsupported source: ${source}`
-        });
-        return;
+          error: `Unsupported source: ${source}`,
+        })
+        return
       }
 
       const results = await runConcurrent(targets, body.concurrency, async (target) => {
@@ -440,17 +471,20 @@ export function registerLogExplainerRoutes(app: Express): void {
           hours: body.hours,
           maxLines: body.maxLines,
           analyze: body.analyze,
-          collectOnly: body.collectOnly
-        };
+          collectOnly: body.collectOnly,
+        }
 
         const collectorRequest: AnalyzeLogsRequest = {
           ...analysisRequest,
-          source: 'journalctl'
-        };
+          source: 'journalctl',
+        }
 
         try {
-          const rawLogs = await collectLogs(collectorRequest);
-          const evidence = buildEvidence(rawLogs, resolveEvidenceLinesForMode(mode, body.evidenceLines));
+          const rawLogs = await collectLogs(collectorRequest)
+          const evidence = buildEvidence(
+            rawLogs,
+            resolveEvidenceLinesForMode(mode, body.evidenceLines)
+          )
 
           if (mode === 'raw') {
             return {
@@ -458,14 +492,16 @@ export function registerLogExplainerRoutes(app: Express): void {
               ok: true,
               ...(modeInfo.legacyCollectOnly ? { logs: rawLogs } : {}),
               evidence,
-              message: rawLogs.trim() ? 'Logs collected (raw mode)' : 'No logs collected (raw mode)'
-            };
+              message: rawLogs.trim()
+                ? 'Logs collected (raw mode)'
+                : 'No logs collected (raw mode)',
+            }
           }
 
           const analysisResult = await analyzeFromRawLogs(analysisRequest, rawLogs, {
             requestId,
-            safetyIdentifier
-          });
+            safetyIdentifier,
+          })
 
           if ('no_logs' in analysisResult && analysisResult.no_logs) {
             return {
@@ -473,8 +509,8 @@ export function registerLogExplainerRoutes(app: Express): void {
               ok: true,
               no_logs: true,
               ...(mode === 'both' ? { evidence } : {}),
-              message: analysisResult.message
-            };
+              message: analysisResult.message,
+            }
           }
 
           if (mode === 'both') {
@@ -482,29 +518,29 @@ export function registerLogExplainerRoutes(app: Express): void {
               target,
               ok: true,
               evidence,
-              ...analysisResult
-            } as AnalyzeLogsBatchResultOk;
+              ...analysisResult,
+            } as AnalyzeLogsBatchResultOk
           }
 
           return {
             target,
             ok: true,
-            ...analysisResult
-          } as AnalyzeLogsBatchResultOk;
+            ...analysisResult,
+          } as AnalyzeLogsBatchResultOk
         } catch (error: unknown) {
-          const httpError = toHttpError(error);
+          const httpError = toHttpError(error)
           const errorResult: AnalyzeLogsBatchResultError = {
             target,
             ok: false,
             error: httpError.message,
-            status: httpError.status
-          };
-          return errorResult;
+            status: httpError.status,
+          }
+          return errorResult
         }
-      });
+      })
 
-      const ok = results.filter((r) => r.ok).length;
-      const failed = results.length - ok;
+      const ok = results.filter((r) => r.ok).length
+      const failed = results.length - ok
 
       const bodyOut = AnalyzeLogsBatchResponseSchema.parse({
         source,
@@ -512,46 +548,46 @@ export function registerLogExplainerRoutes(app: Express): void {
         analyzedTargets: results.length,
         ok,
         failed,
-        results
-      });
-      res.status(200).json(bodyOut);
+        results,
+      })
+      res.status(200).json(bodyOut)
     } catch (error: unknown) {
-      const httpError = toHttpError(error);
+      const httpError = toHttpError(error)
       log.error('log_explainer_batch_failed', {
         request_id: getRequestId(res),
         status: httpError.status,
-        message: httpError.message
-      });
-      res.status(httpError.status).json({ error: httpError.message });
+        message: httpError.message,
+      })
+      res.status(httpError.status).json({ error: httpError.message })
     }
-  });
+  })
 
   app.post('/analyze/logs', async (req: Request, res: Response) => {
     try {
-      const requestId = getRequestId(res);
+      const requestId = getRequestId(res)
       const safetyIdentifier = resolveSafetyIdentifier({
         request: req,
         explicitUser: undefined,
-        requestId
-      });
-      const body = parseBodyOrRespond(AnalyzeLogsRequestSchema, req.body, res);
+        requestId,
+      })
+      const body = parseBodyOrRespond(AnalyzeLogsRequestSchema, req.body, res)
       if (!body) {
-        return;
+        return
       }
 
       const analyzed = await analyzeOneRequest(body, {
         requestId,
-        safetyIdentifier
-      });
-      res.status(200).json(AnalyzeLogsResponseSchema.parse(analyzed));
+        safetyIdentifier,
+      })
+      res.status(200).json(AnalyzeLogsResponseSchema.parse(analyzed))
     } catch (error: unknown) {
-      const httpError = toHttpError(error);
+      const httpError = toHttpError(error)
       log.error('log_explainer_failed', {
         request_id: getRequestId(res),
         status: httpError.status,
-        message: httpError.message
-      });
-      res.status(httpError.status).json({ error: httpError.message });
+        message: httpError.message,
+      })
+      res.status(httpError.status).json({ error: httpError.message })
     }
-  });
+  })
 }

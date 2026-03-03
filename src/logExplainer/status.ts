@@ -2,10 +2,10 @@ import {
   ANALYZE_MAX_LINES_REQUEST,
   AnalyzeLogsStatusResponseSchema,
   BATCH_CONCURRENCY_MAX,
-  BATCH_CONCURRENCY_MIN
-} from './schema.js';
-import { getLogCollectorLimits, getLokiSyntheticTargets } from './logCollector.js';
-import { getOllamaRuntimeMetadata } from './ollamaClient.js';
+  BATCH_CONCURRENCY_MIN,
+} from './schema.js'
+import { getLogCollectorLimits, getLokiSyntheticTargets } from './logCollector.js'
+import { getOllamaRuntimeMetadata } from './ollamaClient.js'
 
 export const LOG_EXPLAINER_ENDPOINTS = [
   'GET /analyze/logs/targets',
@@ -13,12 +13,12 @@ export const LOG_EXPLAINER_ENDPOINTS = [
   'GET /analyze/logs/metadata',
   'GET /health/loki',
   'POST /analyze/logs',
-  'POST /analyze/logs/batch'
-] as const;
+  'POST /analyze/logs/batch',
+] as const
 
 export function buildLogExplainerStatus() {
-  const targets = [...getLokiSyntheticTargets()];
-  const collectorLimits = getLogCollectorLimits();
+  const targets = [...getLokiSyntheticTargets()]
+  const collectorLimits = getLogCollectorLimits()
 
   return AnalyzeLogsStatusResponseSchema.parse({
     endpoints: LOG_EXPLAINER_ENDPOINTS,
@@ -28,12 +28,12 @@ export function buildLogExplainerStatus() {
       maxLinesEffectiveCap: collectorLimits.maxLinesCap,
       batchConcurrencyMin: BATCH_CONCURRENCY_MIN,
       batchConcurrencyMax: BATCH_CONCURRENCY_MAX,
-      loki: collectorLimits.loki
+      loki: collectorLimits.loki,
     },
     targets: {
       count: targets.length,
-      items: targets
+      items: targets,
     },
-    llm: getOllamaRuntimeMetadata()
-  });
+    llm: getOllamaRuntimeMetadata(),
+  })
 }
