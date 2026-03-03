@@ -1,8 +1,10 @@
 import { getRuntimeConfig } from '../config/runtimeConfig.js';
+import { getObservabilityModel, getPolicyFallbackModel } from '../ai/modelPolicy.js';
+import { log } from '../log.js';
 
 const runtimeConfig = getRuntimeConfig();
 const defaultBaseUrl = runtimeConfig.ollama.baseUrl;
-const defaultModel = runtimeConfig.ollama.model;
+const defaultModel = getObservabilityModel(runtimeConfig.ollama.model);
 const OLLAMA_TIMEOUT_MS = Number(runtimeConfig.ollama.timeoutMs);
 const OLLAMA_RETRY_ATTEMPTS = Number(runtimeConfig.ollama.retryAttempts);
 const OLLAMA_RETRY_BACKOFF_MS = Number(runtimeConfig.ollama.retryBackoffMs);
@@ -27,7 +29,13 @@ function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 429 || status === 502 || status === 503 || status === 504;
 }
 
-async function requestOllamaOnce(params: { systemPrompt: string; userPrompt: string }): Promise<string> {
+async function requestOllamaOnce(params: {
+  modelId: string;
+  systemPrompt: string;
+  userPrompt: string;
+  safetyIdentifier?: string;
+  requestId?: string;
+}): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
 
@@ -35,12 +43,15 @@ async function requestOllamaOnce(params: { systemPrompt: string; userPrompt: str
     const response = await fetch(`${defaultBaseUrl}/api/generate`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(params.requestId ? { 'X-Request-ID': params.requestId } : {}),
+        ...(params.safetyIdentifier ? { 'X-Safety-Identifier': params.safetyIdentifier } : {})
       },
       body: JSON.stringify({
-        model: defaultModel,
+        model: params.modelId,
         system: params.systemPrompt,
         prompt: params.userPrompt,
+        safety_identifier: params.safetyIdentifier,
         stream: false
       }),
       signal: controller.signal
@@ -75,15 +86,80 @@ async function requestOllamaOnce(params: { systemPrompt: string; userPrompt: str
   }
 }
 
-export async function analyzeLogsWithOllama(params: { systemPrompt: string; userPrompt: string }): Promise<string> {
+function isCyberPolicyViolationError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /cyber_policy_violation/i.test(message);
+}
+
+export async function analyzeLogsWithOllama(params: {
+  systemPrompt: string;
+  userPrompt: string;
+  safetyIdentifier?: string;
+  requestId?: string;
+}): Promise<string> {
   const maxAttempts = Math.max(1, Math.floor(OLLAMA_RETRY_ATTEMPTS) + 1);
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      return await requestOllamaOnce(params);
+      return await requestOllamaOnce({
+        modelId: defaultModel,
+        systemPrompt: params.systemPrompt,
+        userPrompt: params.userPrompt,
+        requestId: params.requestId,
+        safetyIdentifier: params.safetyIdentifier
+      });
     } catch (error: unknown) {
       lastError = error;
+      if (isCyberPolicyViolationError(error)) {
+        const fallbackModel = getPolicyFallbackModel(defaultModel);
+        const attemptedFallback = fallbackModel !== defaultModel;
+
+        log.info('policy_trigger_event', {
+          request_id: params.requestId ?? null,
+          route_kind: 'observability',
+          trigger: 'cyber_policy_violation',
+          primary_model: defaultModel,
+          fallback_model: attemptedFallback ? fallbackModel : null,
+          safety_identifier_present: Boolean(params.safetyIdentifier),
+          fallback_attempted: attemptedFallback
+        });
+
+        if (attemptedFallback) {
+          try {
+            const text = await requestOllamaOnce({
+              modelId: fallbackModel,
+              systemPrompt: params.systemPrompt,
+              userPrompt: params.userPrompt,
+              requestId: params.requestId,
+              safetyIdentifier: params.safetyIdentifier
+            });
+            log.info('policy_trigger_event', {
+              request_id: params.requestId ?? null,
+              route_kind: 'observability',
+              trigger: 'cyber_policy_violation',
+              primary_model: defaultModel,
+              fallback_model: fallbackModel,
+              fallback_attempted: true,
+              fallback_success: true
+            });
+            return text;
+          } catch (fallbackError: unknown) {
+            log.error('policy_trigger_event', {
+              request_id: params.requestId ?? null,
+              route_kind: 'observability',
+              trigger: 'cyber_policy_violation',
+              primary_model: defaultModel,
+              fallback_model: fallbackModel,
+              fallback_attempted: true,
+              fallback_success: false,
+              error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
+            });
+            throw fallbackError;
+          }
+        }
+      }
+
       const status = typeof error === 'object' && error !== null && 'status' in error ? Number((error as { status?: unknown }).status) : 0;
       const retryable = status > 0 ? isRetryableStatus(status) : true;
       const shouldRetry = retryable && attempt < maxAttempts;

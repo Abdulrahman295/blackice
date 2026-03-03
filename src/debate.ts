@@ -28,6 +28,11 @@ export type DebateResult = {
   winner: null;
 };
 
+type DebateExecutionMetadata = {
+  requestId?: string;
+  safetyIdentifier?: string;
+};
+
 const DEFAULT_MODEL_ALLOWLIST = ['llama3.1:8b', 'qwen2.5:14b', 'qwen2.5-coder:14b'];
 const TURN_RETRY_COUNT = 1;
 const PER_TURN_TIMEOUT_MS = 45_000;
@@ -125,6 +130,7 @@ async function generateTurnWithRetry(args: {
   priorTurns: DebateTurn[];
   maxTurnChars: number;
   temperature?: number;
+  metadata?: DebateExecutionMetadata;
 }): Promise<DebateTurn> {
   const prompt = buildTurnPrompt(args);
 
@@ -134,7 +140,10 @@ async function generateTurnWithRetry(args: {
         runWorkerText({
           modelId: args.model,
           input: prompt,
-          temperature: args.temperature
+          temperature: args.temperature,
+          requestId: args.metadata?.requestId,
+          safetyIdentifier: args.metadata?.safetyIdentifier,
+          routeKind: 'debate'
         }),
         PER_TURN_TIMEOUT_MS,
         `Debate turn ${args.round}.${args.turn}`
@@ -192,7 +201,10 @@ function buildModeratorSummary(topic: string, transcript: DebateTurn[]): string 
   ].join('\n');
 }
 
-export async function runDebate(request: DebateRequest): Promise<DebateResult> {
+export async function runDebate(
+  request: DebateRequest,
+  metadata: DebateExecutionMetadata = {}
+): Promise<DebateResult> {
   const allowlist = getModelAllowlist();
   assertModelAllowed(request.modelA, allowlist);
   assertModelAllowed(request.modelB, allowlist);
@@ -216,7 +228,8 @@ export async function runDebate(request: DebateRequest): Promise<DebateResult> {
         turn,
         priorTurns: transcript,
         maxTurnChars: request.maxTurnChars,
-        temperature
+        temperature,
+        metadata
       });
 
       transcript.push(turnResult);
