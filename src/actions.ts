@@ -123,8 +123,7 @@ async function pathIsAllowlisted(requestedPath: string): Promise<boolean> {
       } else if (realRequested === realAllowed) {
         return true
       }
-    } catch {
-    }
+    } catch {}
   }
 
   return false
