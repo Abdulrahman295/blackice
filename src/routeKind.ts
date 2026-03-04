@@ -1,4 +1,4 @@
 export const ROUTE_KIND = {
   ACTION: 'action',
-  CHAT: 'chat'
-} as const;
+  CHAT: 'chat',
+} as const

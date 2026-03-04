@@ -10,6 +10,9 @@
     "prestart": "pnpm run build",
     "start": "node dist/server.js",
     "dev": "tsx src/server.ts",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint .",
     "test": "vitest run",
     "test:unit": "vitest run src/log.test.ts src/http/requestLogging.test.ts",
     "test:integration": "vitest run src/routes.integration.test.ts",
@@ -31,6 +34,7 @@
     "zod": "^4.0.16"
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
     "@types/express": "^4.17.21",
     "@types/node": "^22.13.1",
     "@types/supertest": "^7.2.0",

@@ -1,17 +1,18 @@
-import { z } from 'zod';
-import { getRuntimeConfig } from '../config/runtimeConfig.js';
+import { z } from 'zod'
+import { getRuntimeConfig } from '../config/runtimeConfig.js'
 
-export const ANALYZE_MAX_HOURS = 168;
-export const ANALYZE_MAX_LINES_REQUEST = 5000;
-export const BATCH_CONCURRENCY_MIN = 1;
-export const LOKI_MAX_LIMIT_REQUEST = 5000;
-export const BATCH_EVIDENCE_LINES_MAX = 50;
-export const BATCH_EVIDENCE_LINES_DEFAULT = 10;
-const CONFIG_MAX_CONCURRENCY = Number(getRuntimeConfig().limits.maxConcurrency);
-export const BATCH_CONCURRENCY_MAX = Number.isFinite(CONFIG_MAX_CONCURRENCY) && CONFIG_MAX_CONCURRENCY >= BATCH_CONCURRENCY_MIN
-  ? Math.floor(CONFIG_MAX_CONCURRENCY)
-  : 5;
-const BATCH_CONCURRENCY_DEFAULT = Math.min(2, BATCH_CONCURRENCY_MAX);
+export const ANALYZE_MAX_HOURS = 168
+export const ANALYZE_MAX_LINES_REQUEST = 5000
+export const BATCH_CONCURRENCY_MIN = 1
+export const LOKI_MAX_LIMIT_REQUEST = 5000
+export const BATCH_EVIDENCE_LINES_MAX = 50
+export const BATCH_EVIDENCE_LINES_DEFAULT = 10
+const CONFIG_MAX_CONCURRENCY = Number(getRuntimeConfig().limits.maxConcurrency)
+export const BATCH_CONCURRENCY_MAX =
+  Number.isFinite(CONFIG_MAX_CONCURRENCY) && CONFIG_MAX_CONCURRENCY >= BATCH_CONCURRENCY_MIN
+    ? Math.floor(CONFIG_MAX_CONCURRENCY)
+    : 5
+const BATCH_CONCURRENCY_DEFAULT = Math.min(2, BATCH_CONCURRENCY_MAX)
 
 const LokiFiltersSchema = z
   .record(
@@ -22,7 +23,7 @@ const LokiFiltersSchema = z
       .max(60),
     z.string().min(1).max(300)
   )
-  .refine((filters) => Object.keys(filters).length > 0, 'filters must include at least one label');
+  .refine((filters) => Object.keys(filters).length > 0, 'filters must include at least one label')
 
 export const AnalyzeLogsRequestSchema = z
   .object({
@@ -31,9 +32,9 @@ export const AnalyzeLogsRequestSchema = z
     hours: z.number().positive().max(ANALYZE_MAX_HOURS),
     maxLines: z.number().int().positive().max(ANALYZE_MAX_LINES_REQUEST),
     analyze: z.boolean().optional(),
-    collectOnly: z.boolean().optional()
+    collectOnly: z.boolean().optional(),
   })
-  .strict();
+  .strict()
 
 export const AnalyzeLogsBatchRequestSchema = z
   .object({
@@ -46,75 +47,94 @@ export const AnalyzeLogsBatchRequestSchema = z
     regex: z.string().min(1).max(500).optional(),
     start: z.string().datetime({ offset: true }).optional(),
     end: z.string().datetime({ offset: true }).optional(),
-    sinceSeconds: z.number().int().positive().max(ANALYZE_MAX_HOURS * 60 * 60).optional(),
+    sinceSeconds: z
+      .number()
+      .int()
+      .positive()
+      .max(ANALYZE_MAX_HOURS * 60 * 60)
+      .optional(),
     limit: z.number().int().positive().max(LOKI_MAX_LIMIT_REQUEST).optional().default(2_000),
     allowUnscoped: z.boolean().optional().default(false),
     hours: z.number().positive().max(ANALYZE_MAX_HOURS).optional().default(6),
-    sinceMinutes: z.number().int().positive().max(ANALYZE_MAX_HOURS * 60).optional(),
+    sinceMinutes: z
+      .number()
+      .int()
+      .positive()
+      .max(ANALYZE_MAX_HOURS * 60)
+      .optional(),
     maxLines: z.number().int().positive().max(ANALYZE_MAX_LINES_REQUEST).optional().default(300),
     mode: z.enum(['analyze', 'raw', 'both']).optional(),
     evidenceLines: z.number().int().positive().max(BATCH_EVIDENCE_LINES_MAX).optional(),
-    concurrency: z.number().int().min(BATCH_CONCURRENCY_MIN).max(BATCH_CONCURRENCY_MAX).optional().default(BATCH_CONCURRENCY_DEFAULT),
+    concurrency: z
+      .number()
+      .int()
+      .min(BATCH_CONCURRENCY_MIN)
+      .max(BATCH_CONCURRENCY_MAX)
+      .optional()
+      .default(BATCH_CONCURRENCY_DEFAULT),
     analyze: z.boolean().optional().default(true),
-    collectOnly: z.boolean().optional()
+    collectOnly: z.boolean().optional(),
   })
   .superRefine((value, ctx) => {
     if (value.source !== 'loki') {
-      return;
+      return
     }
 
-    const hasQuery = typeof value.query === 'string' && value.query.trim().length > 0;
-    const hasFilters = value.filters !== undefined;
-    const hasSelectors = (value.selectors?.length ?? 0) > 0;
-    const hasTargets = (value.targets?.length ?? 0) > 0;
+    const hasQuery = typeof value.query === 'string' && value.query.trim().length > 0
+    const hasFilters = value.filters !== undefined
+    const hasSelectors = (value.selectors?.length ?? 0) > 0
+    const hasTargets = (value.targets?.length ?? 0) > 0
 
     if (hasQuery) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['query'],
-        message: 'query is not allowed for source=loki; use filters'
-      });
+        message: 'query is not allowed for source=loki; use filters',
+      })
     }
 
     if (hasSelectors) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['selectors'],
-        message: 'selectors are not allowed for source=loki; use filters'
-      });
+        message: 'selectors are not allowed for source=loki; use filters',
+      })
     }
 
     if (hasTargets) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['targets'],
-        message: 'targets are not allowed for source=loki; use filters'
-      });
+        message: 'targets are not allowed for source=loki; use filters',
+      })
     }
 
     if (!hasFilters) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['filters'],
-        message: 'filters are required for source=loki'
-      });
+        message: 'filters are required for source=loki',
+      })
     }
 
-    if (value.sinceSeconds !== undefined && (value.start !== undefined || value.end !== undefined)) {
+    if (
+      value.sinceSeconds !== undefined &&
+      (value.start !== undefined || value.end !== undefined)
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['sinceSeconds'],
-        message: 'provide either sinceSeconds or start/end for source=loki, not both'
-      });
+        message: 'provide either sinceSeconds or start/end for source=loki, not both',
+      })
     }
   })
-  .strict();
+  .strict()
 
 export const AnalyzeLogsTargetsResponseSchema = z
   .object({
-    targets: z.array(z.string())
+    targets: z.array(z.string()),
   })
-  .strict();
+  .strict()
 
 export const AnalyzeLogsResponseSchema = z
   .object({
@@ -124,11 +144,11 @@ export const AnalyzeLogsResponseSchema = z
     safety: z
       .object({
         redacted: z.boolean(),
-        reasons: z.array(z.string())
+        reasons: z.array(z.string()),
       })
-      .optional()
+      .optional(),
   })
-  .strict();
+  .strict()
 
 export const AnalyzeLogsBatchResultOkSchema = z
   .object({
@@ -148,28 +168,28 @@ export const AnalyzeLogsBatchResultOkSchema = z
         z
           .object({
             ts: z.string(),
-            line: z.string()
+            line: z.string(),
           })
           .strict()
       )
       .optional(),
-    message: z.string().optional()
+    message: z.string().optional(),
   })
-  .strict();
+  .strict()
 
 export const AnalyzeLogsBatchResultErrorSchema = z
   .object({
     target: z.string(),
     ok: z.literal(false),
     status: z.number().int(),
-    error: z.string()
+    error: z.string(),
   })
-  .strict();
+  .strict()
 
 export const AnalyzeLogsBatchResultSchema = z.discriminatedUnion('ok', [
   AnalyzeLogsBatchResultOkSchema,
-  AnalyzeLogsBatchResultErrorSchema
-]);
+  AnalyzeLogsBatchResultErrorSchema,
+])
 
 export const AnalyzeLogsBatchResponseSchema = z
   .object({
@@ -178,9 +198,9 @@ export const AnalyzeLogsBatchResponseSchema = z
     analyzedTargets: z.number().int().nonnegative(),
     ok: z.number().int().nonnegative(),
     failed: z.number().int().nonnegative(),
-    results: z.array(AnalyzeLogsBatchResultSchema)
+    results: z.array(AnalyzeLogsBatchResultSchema),
   })
-  .strict();
+  .strict()
 
 export const AnalyzeLogsStatusResponseSchema = z
   .object({
@@ -198,43 +218,43 @@ export const AnalyzeLogsStatusResponseSchema = z
         defaultWindowMinutes: z.number().int().positive(),
         maxLinesCap: z.number().int().positive(),
         maxResponseBytes: z.number().int().positive(),
-        requireScopeLabels: z.boolean()
-      })
+        requireScopeLabels: z.boolean(),
+      }),
     }),
     targets: z.object({
       count: z.number().int().nonnegative(),
-      items: z.array(z.string())
+      items: z.array(z.string()),
     }),
     llm: z.object({
       baseUrl: z.string(),
       model: z.string(),
       timeoutMs: z.number().int().positive(),
       retryAttempts: z.number().int().nonnegative(),
-      retryBackoffMs: z.number().int().positive()
-    })
+      retryBackoffMs: z.number().int().positive(),
+    }),
   })
-  .strict();
+  .strict()
 
-export type AnalyzeLogsRequest = z.infer<typeof AnalyzeLogsRequestSchema>;
-export type AnalyzeLogsBatchRequest = z.infer<typeof AnalyzeLogsBatchRequestSchema>;
+export type AnalyzeLogsRequest = z.infer<typeof AnalyzeLogsRequestSchema>
+export type AnalyzeLogsBatchRequest = z.infer<typeof AnalyzeLogsBatchRequestSchema>
 export type AnalyzeLogsBatchLokiRequest = {
-  source: 'loki';
-  query?: string;
-  filters?: Record<string, string>;
-  contains?: string;
-  regex?: string;
-  start?: string;
-  end?: string;
-  sinceSeconds?: number;
-  limit?: number;
-  allowUnscoped?: boolean;
-};
-export type AnalyzeLogsTargetsResponse = z.infer<typeof AnalyzeLogsTargetsResponseSchema>;
-export type AnalyzeLogsResponse = z.infer<typeof AnalyzeLogsResponseSchema>;
-export type AnalyzeLogsBatchResultOk = z.infer<typeof AnalyzeLogsBatchResultOkSchema>;
-export type AnalyzeLogsBatchResultError = z.infer<typeof AnalyzeLogsBatchResultErrorSchema>;
-export type AnalyzeLogsBatchResponse = z.infer<typeof AnalyzeLogsBatchResponseSchema>;
-export type AnalyzeLogsStatusResponse = z.infer<typeof AnalyzeLogsStatusResponseSchema>;
+  source: 'loki'
+  query?: string
+  filters?: Record<string, string>
+  contains?: string
+  regex?: string
+  start?: string
+  end?: string
+  sinceSeconds?: number
+  limit?: number
+  allowUnscoped?: boolean
+}
+export type AnalyzeLogsTargetsResponse = z.infer<typeof AnalyzeLogsTargetsResponseSchema>
+export type AnalyzeLogsResponse = z.infer<typeof AnalyzeLogsResponseSchema>
+export type AnalyzeLogsBatchResultOk = z.infer<typeof AnalyzeLogsBatchResultOkSchema>
+export type AnalyzeLogsBatchResultError = z.infer<typeof AnalyzeLogsBatchResultErrorSchema>
+export type AnalyzeLogsBatchResponse = z.infer<typeof AnalyzeLogsBatchResponseSchema>
+export type AnalyzeLogsStatusResponse = z.infer<typeof AnalyzeLogsStatusResponseSchema>
 
 export const LogExplainerJsonSchemas = {
   analyzeLogsTargetsResponse: {
@@ -243,10 +263,10 @@ export const LogExplainerJsonSchemas = {
     properties: {
       targets: {
         type: 'array',
-        items: { type: 'string' }
-      }
+        items: { type: 'string' },
+      },
     },
-    additionalProperties: false
+    additionalProperties: false,
   },
   analyzeLogsResponse: {
     type: 'object',
@@ -260,12 +280,12 @@ export const LogExplainerJsonSchemas = {
         required: ['redacted', 'reasons'],
         properties: {
           redacted: { type: 'boolean' },
-          reasons: { type: 'array', items: { type: 'string' } }
+          reasons: { type: 'array', items: { type: 'string' } },
         },
-        additionalProperties: false
-      }
+        additionalProperties: false,
+      },
     },
-    additionalProperties: false
+    additionalProperties: false,
   },
   analyzeLogsBatchResponse: {
     type: 'object',
@@ -292,9 +312,9 @@ export const LogExplainerJsonSchemas = {
                   required: ['redacted', 'reasons'],
                   properties: {
                     redacted: { type: 'boolean' },
-                    reasons: { type: 'array', items: { type: 'string' } }
+                    reasons: { type: 'array', items: { type: 'string' } },
                   },
-                  additionalProperties: false
+                  additionalProperties: false,
                 },
                 no_logs: { type: 'boolean' },
                 logs: { type: 'string' },
@@ -305,14 +325,14 @@ export const LogExplainerJsonSchemas = {
                     required: ['ts', 'line'],
                     properties: {
                       ts: { type: 'string' },
-                      line: { type: 'string' }
+                      line: { type: 'string' },
                     },
-                    additionalProperties: false
-                  }
+                    additionalProperties: false,
+                  },
                 },
-                message: { type: 'string' }
+                message: { type: 'string' },
               },
-              additionalProperties: false
+              additionalProperties: false,
             },
             {
               type: 'object',
@@ -321,14 +341,14 @@ export const LogExplainerJsonSchemas = {
                 target: { type: 'string' },
                 ok: { const: false },
                 status: { type: 'integer' },
-                error: { type: 'string' }
+                error: { type: 'string' },
               },
-              additionalProperties: false
-            }
-          ]
-        }
-      }
+              additionalProperties: false,
+            },
+          ],
+        },
+      },
     },
-    additionalProperties: false
-  }
-} as const;
+    additionalProperties: false,
+  },
+} as const
