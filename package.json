@@ -23,7 +23,8 @@
     "tag:change": "node scripts/tag-change.mjs"
   },
   "engines": {
-    "node": ">=18.17"
+    "node": ">=18.17",
+    "pnpm": ">=10"
   },
   "packageManager": "pnpm@10.14.0",
   "dependencies": {
