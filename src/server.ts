@@ -23,7 +23,10 @@ const app = createApp(maxActiveDebates)
 
 app.listen(port, () => {
   if (debateMaxConcurrent.usedFallback) {
-    log.info('debate_max_concurrent_fallback', { configured: process.env.DEBATE_MAX_CONCURRENT ?? null, applied: maxActiveDebates })
+    log.info('debate_max_concurrent_fallback', {
+      configured: process.env.DEBATE_MAX_CONCURRENT ?? null,
+      applied: maxActiveDebates,
+    })
   }
 
   log.info('server_started', { port, ollama_base_url: ollamaBaseURL })
