@@ -9,7 +9,23 @@ type LogEntry = {
 }
 
 const level: LogLevel = process.env.LOG_LEVEL === 'debug' ? 'debug' : 'info'
-const maxLogBufferEntries = Number(process.env.LOG_BUFFER_MAX_ENTRIES ?? 2000)
+
+function parseMaxLogBufferEntries(raw: string | undefined): number {
+  const defaultValue = 2000
+  if (!raw) {
+    return defaultValue
+  }
+
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed)) {
+    // Fallback to default when env is not a finite number.
+    return defaultValue
+  }
+
+  return Math.max(1, Math.min(10_000, Math.floor(parsed)))
+}
+
+const maxLogBufferEntries = parseMaxLogBufferEntries(process.env.LOG_BUFFER_MAX_ENTRIES)
 const logBuffer: LogEntry[] = []
 
 function shouldLog(msgLevel: LogLevel): boolean {
