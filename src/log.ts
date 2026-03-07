@@ -22,7 +22,7 @@ function parseMaxLogBufferEntries(raw: string | undefined): number {
     return defaultValue
   }
 
-  return Math.max(100, Math.min(10_000, Math.floor(parsed)))
+  return Math.max(1, Math.min(10_000, Math.floor(parsed)))
 }
 
 const maxLogBufferEntries = parseMaxLogBufferEntries(process.env.LOG_BUFFER_MAX_ENTRIES)
